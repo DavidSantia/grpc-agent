@@ -6,15 +6,24 @@ option go_package = ".;protos";
 
 package protos;
 
-service CreateApp {
-  rpc CreateApp (AppConfig) returns (AppReply) {};
-}
-
-message AppConfig {
+message Config {
   string name = 1;
   string license = 2;
 }
 
-message AppReply {
-  string message = 1;
+message Index {
+  uint64 idx = 1;
+}
+
+message NameIndex {
+  uint64 idx = 1;
+  string name = 2;
+}
+
+service GoAgent {
+  rpc CreateApp (Config) returns (Index) {};
+  rpc NewTxn (NameIndex) returns (Index) {};
+  rpc NewSeg (NameIndex) returns (Index) {};
+  rpc EndSeg (Index) returns (Index) {};
+  rpc EndTxn (Index) returns (Index) {};
 }
