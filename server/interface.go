@@ -2,11 +2,12 @@ package main
 
 import (
 	"context"
-	"log"
+	"os"
 	"unsafe"
 
+	lg "github.com/DavidSantia/grpc-agent/log"
 	pb "github.com/DavidSantia/grpc-agent/protos"
-	"github.com/newrelic/go-agent"
+	"github.com/newrelic/go-agent/v3/newrelic"
 )
 
 // gRPC wrappers
@@ -18,13 +19,15 @@ type server struct {
 // Indexed with uint64 values (instead of memory pointers)
 
 type TxnWithSeg struct {
-	Txn newrelic.Transaction
-	Seg []*newrelic.Segment
+	Txn  *newrelic.Transaction
+	Seg  []*newrelic.Segment
+	Host string
 }
 
 type App struct {
-	Idx uint64
-	App newrelic.Application
+	Idx  uint64
+	App  *newrelic.Application
+	Host string
 }
 
 type AppMap map[uint64]App
@@ -44,13 +47,13 @@ func initData() {
 
 // implement CreateApp
 func (s *server) CreateApp(ctx context.Context, in *pb.Config) (*pb.Index, error) {
-	log.Printf("CreateApp(%q)", in.GetName())
+	//log.Printf("CreateApp(%q)", in.GetName())
 
-	idx, err := newApp(in.GetName(), in.GetLicense())
+	idx, err := newApp(in.GetName(), in.GetLicense(), in.GetHost())
 	return &pb.Index{Idx: idx}, err
 }
 
-func newApp(name, key string) (appPtr uint64, err error) {
+func newApp(name, key, host string) (appPtr uint64, err error) {
 	var app App
 
 	appPtr = appLookup[name]
@@ -59,25 +62,28 @@ func newApp(name, key string) (appPtr uint64, err error) {
 	}
 
 	// Create App
-	config := newrelic.NewConfig(name, key)
-	config.CrossApplicationTracer.Enabled = false
-	config.DistributedTracer.Enabled = true
-	app.App, err = newrelic.NewApplication(config)
+	app.App, err = newrelic.NewApplication(
+		newrelic.ConfigAppName(name),
+		newrelic.ConfigLicense(key),
+		newrelic.ConfigInfoLogger(os.Stdout),
+		newrelic.ConfigDistributedTracerEnabled(true),
+	)
 	if err != nil {
 		return
 	}
 
 	// Convert pointer to uint64 and save in map
-	appPtr = uint64(uintptr(unsafe.Pointer(&app)))
+	appPtr = uint64(uintptr(unsafe.Pointer(app.App)))
 	appLookup[name] = appPtr
 	app.Idx = appPtr
+	app.Host = host
 	appMap[appPtr] = app
 	return
 }
 
 // implement NewTxn
 func (s *server) NewTxn(ctx context.Context, in *pb.NameIndex) (*pb.Index, error) {
-	log.Printf("NewTxn(%q)", in.GetName())
+	//log.Printf("NewTxn(%q)", in.GetName())
 
 	idx := newTxn(in.GetIdx(), in.GetName())
 	return &pb.Index{Idx: idx}, nil
@@ -85,20 +91,20 @@ func (s *server) NewTxn(ctx context.Context, in *pb.NameIndex) (*pb.Index, error
 
 func newTxn(appPtr uint64, name string) (txnSegPtr uint64) {
 	var app App
-	var txn newrelic.Transaction
+	var txn *newrelic.Transaction
 
 	app = appMap[appPtr]
-	txn = app.App.StartTransaction(name, nil, nil)
+	txn = app.App.StartTransaction(name)
 
 	// Convert pointer to uint64 and save in map
-	txnSegPtr = uint64(uintptr(unsafe.Pointer(&txn)))
-	txnSegMap[txnSegPtr] = TxnWithSeg{Txn: txn}
+	txnSegPtr = uint64(uintptr(unsafe.Pointer(txn)))
+	txnSegMap[txnSegPtr] = TxnWithSeg{Txn: txn, Host: app.Host}
 	return
 }
 
 // implement NewSeg
 func (s *server) NewSeg(ctx context.Context, in *pb.NameIndex) (*pb.Index, error) {
-	log.Printf("NewSeg(%q)", in.GetName())
+	//log.Printf("NewSeg(%q)", in.GetName())
 
 	newSeg(in.GetIdx(), in.GetName())
 	return &pb.Index{Idx: in.GetIdx()}, nil
@@ -119,7 +125,7 @@ func newSeg(txnSegPtr uint64, name string) {
 
 // implement EndSeg
 func (s *server) EndSeg(ctx context.Context, in *pb.Index) (*pb.Index, error) {
-	log.Printf("EndSeg()")
+	//log.Printf("EndSeg()")
 
 	endSeg(in.GetIdx())
 	return &pb.Index{Idx: in.GetIdx()}, nil
@@ -141,7 +147,7 @@ func endSeg(txnSegPtr uint64) {
 
 // implement EndTxn
 func (s *server) EndTxn(ctx context.Context, in *pb.Index) (*pb.Index, error) {
-	log.Printf("EndTxn()")
+	//log.Printf("EndTxn()")
 
 	endAll(in.GetIdx())
 	return &pb.Index{Idx: in.GetIdx()}, nil
@@ -165,4 +171,16 @@ func endAll(txnSegPtr uint64) {
 	// End txn
 	txnWithSeg.Txn.End()
 	delete(txnSegMap, txnSegPtr)
+}
+
+// implement LogTxn
+func (s *server) LogTxn(ctx context.Context, in *pb.LogIndex) (*pb.Index, error) {
+	var txnWithSeg TxnWithSeg
+
+	//log.Printf("LogTxn(%d): %q", in.GetIdx(), in.GetMessage())
+
+	// Log message with txn context
+	txnWithSeg = txnSegMap[in.GetIdx()]
+	lg.DoLog(txnWithSeg.Txn, in.GetLevel(), in.GetMessage(), txnWithSeg.Host)
+	return &pb.Index{Idx: in.GetIdx()}, nil
 }

@@ -11,12 +11,8 @@ import (
 	"google.golang.org/grpc"
 )
 
-const (
-	address = "localhost:9000"
-)
-
 func main() {
-	var address, key string
+	var address, key, host string
 
 	// Get environment variable settings
 	address = os.Getenv("NEW_RELIC_GRPC_ADDRESS")
@@ -27,6 +23,7 @@ func main() {
 	if len(key) == 0 {
 		log.Fatalf("please set env var NEW_RELIC_LICENSE_KEY")
 	}
+	host, _ = os.Hostname()
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure(), grpc.WithBlock())
@@ -44,7 +41,7 @@ func main() {
 	defer cancel()
 
 	c := pb.NewGoAgentClient(conn)
-	a, err := c.CreateApp(ctx, &pb.Config{Name: name, License: key})
+	a, err := c.CreateApp(ctx, &pb.Config{Name: name, License: key, Host: host})
 	if err != nil {
 		log.Fatalf("could not create app: %v", err)
 	}
@@ -67,6 +64,13 @@ func main() {
 		log.Fatalf("could not create seg: %v", err)
 	}
 	log.Printf("Seg idx: %d", s.GetIdx())
+
+	ctx, cancel = context.WithTimeout(context.Background(), time.Second)
+	l, err := c.LogTxn(ctx, &pb.LogIndex{Idx: t.GetIdx(), Level: 3, Message: "It is a very hot day today"})
+	if err != nil {
+		log.Fatalf("could not log message: %v", err)
+	}
+	log.Printf("Log idx: %d", l.GetIdx())
 
 	time.Sleep(time.Second)
 
