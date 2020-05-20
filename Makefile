@@ -12,6 +12,6 @@ protos/go_agent.pb.go: protos/go_agent.proto
 	@echo Generating go_agent.pb.go
 	protoc --proto_path=protos --proto_path=third_party --go_out=plugins=grpc:protos go_agent.proto
 
-image: server/server
+images: server/server
 	docker build -t grpc-agent server
 	docker build -t fluentd-nr fluentd

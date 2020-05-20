@@ -1,8 +1,3 @@
-if [ -z "$NEW_RELIC_LICENSE_KEY" ]; then
-    echo 'Please set env NEW_RELIC_LICENSE_KEY'
-    exit
-fi
-
 if [ -z "$(docker images -q fluentd-nr)" ]; then
     echo 'Please build fluend-nr image first'
     exit
