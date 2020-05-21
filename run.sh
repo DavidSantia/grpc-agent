@@ -15,5 +15,5 @@ fi
 
 if [ -z "$(docker ps -a -q --filter name=grpc-agent)" ]; then
     echo 'Starting grpc-agent server'
-    docker run -d --rm --name grpc-agent -p 9000:9000 grpc-agent
+    docker run -d --rm --name grpc-agent -p 9000:9000 --log-driver=fluentd --log-opt tag="nrlogs" grpc-agent
 fi
